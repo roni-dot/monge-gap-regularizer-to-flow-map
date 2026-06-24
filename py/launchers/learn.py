@@ -58,7 +58,14 @@ def train_loop(
 ) -> None:
     """Carry out the training loop."""
 
-    pbar = tqdm(range(cfg.optimization.total_steps))
+    # Support resume: if a checkpoint was loaded with reset_optimizer=False,
+    # train_state.step already reflects how far training has gone.
+    start_step = int(dist_utils.safe_index(cfg, train_state.step))
+    remaining_steps = cfg.optimization.total_steps - start_step
+    if start_step > 0:
+        print(f"Resuming from step {start_step}; {remaining_steps} steps remaining.")
+
+    pbar = tqdm(range(remaining_steps), initial=start_step, total=cfg.optimization.total_steps)
     for _ in pbar:
         # construct loss function arguments
         start_time = time.time()
@@ -103,15 +110,24 @@ def parse_command_line_arguments():
     parser.add_argument("--slurm_id", type=int)
     parser.add_argument("--dataset_location", type=str)
     parser.add_argument("--output_folder", type=str)
+    # Resume flags: point to an existing checkpoint and keep the step counter.
+    parser.add_argument("--load_path", type=str, default="",
+                        help="Path to a .pkl checkpoint to resume from.")
+    parser.add_argument("--no_reset_optimizer", action="store_true",
+                        help="Keep optimizer state and step counter from checkpoint (for resume).")
     return parser.parse_args()
 
 
 def setup_config_dict():
     args = parse_command_line_arguments()
     cfg_module = importlib.import_module(args.cfg_path)
-    return cfg_module.get_config(
-        args.slurm_id, args.dataset_location, args.output_folder
-    )
+    cfg = cfg_module.get_config(args.slurm_id, args.dataset_location, args.output_folder)
+    # Apply resume overrides before config is frozen
+    if args.load_path:
+        cfg.network.load_path = args.load_path
+    if args.no_reset_optimizer:
+        cfg.network.reset_optimizer = False
+    return cfg
 
 
 def setup_state(cfg: config_dict.ConfigDict, prng_key: jnp.ndarray) -> Tuple[
