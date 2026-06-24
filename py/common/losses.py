@@ -15,6 +15,7 @@ from ml_collections import config_dict
 from . import flow_map as flow_map
 from . import interpolant as interpolant
 from . import loss_args
+from . import monge_gap_reg
 
 Parameters = Dict[str, Dict]
 
@@ -379,8 +380,8 @@ def setup_loss(
         else:
             raise ValueError(f"Unknown loss_type: {cfg.training.loss_type}")
 
-    def loss(params, teacher_params, x0, x1, label, s, t, u, h, dropout_keys):
-        """Split batch into diagonal and off-diagonal portions."""
+    def loss(params, teacher_params, x0, x1, label, s, t, u, h, dropout_keys, mg_x0, mg_x1, mg_s, mg_t):
+        """Split batch into diagonal and off-diagonal portions, then add Monge gap."""
         total_bs = x0.shape[0]
         diag_bs, offdiag_bs = loss_args._get_diag_offdiag_bs(cfg, total_bs)
 
@@ -420,6 +421,30 @@ def setup_loss(
             total_loss += offdiag_loss * offdiag_bs
 
         # Normalize by total batch size
-        return total_loss / total_bs
+        lsd_loss = total_loss / total_bs
+
+        # Monge gap regularizer: one shared (s,t) per Sinkhorn batch
+        # lambda_reg is a static Python float — this branch is resolved at trace time
+        if cfg.training.lambda_reg > 0.0:
+            # Compute interpolant I_s at the shared mg_s for the mg batch
+            I_s_mg = jax.vmap(lambda x0i, x1i: interp.calc_It(mg_s, x0i, x1i))(mg_x0, mg_x1)
+
+            # Evaluate X_{s,t} at the shared (mg_s, mg_t) for every mg point
+            X_st_mg = jax.vmap(
+                lambda xi: net.apply(params, mg_s, mg_t, xi, None, train=False)
+            )(I_s_mg)
+
+            mg_val = monge_gap_reg.monge_gap(
+                I_s_mg,
+                X_st_mg,
+                cfg.training.sinkhorn_eps,
+                cfg.training.sinkhorn_max_iter,
+            )
+            total_loss = lsd_loss + cfg.training.lambda_reg * mg_val
+        else:
+            mg_val = jnp.array(0.0)
+            total_loss = lsd_loss
+
+        return total_loss, {"lsd_loss": lsd_loss, "monge_gap": mg_val}
 
     return loss

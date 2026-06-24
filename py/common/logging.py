@@ -292,6 +292,7 @@ def log_metrics(
     loss_fn_args: Tuple,
     prng_key: jnp.ndarray,
     step_time: float,
+    aux: dict = None,
 ) -> jnp.ndarray:
     """Log some metrics to wandb, make a figure, and checkpoint the parameters."""
 
@@ -307,6 +308,13 @@ def log_metrics(
         f"learning_rate": learning_rate,
         f"step_time": step_time,
     }
+
+    # Monge gap auxiliary metrics
+    if aux is not None:
+        if "lsd_loss" in aux:
+            metrics["lsd_loss"] = float(dist_utils.safe_index(cfg, aux["lsd_loss"]))
+        if "monge_gap" in aux:
+            metrics["monge_gap"] = float(dist_utils.safe_index(cfg, aux["monge_gap"]))
 
     # Compute FID on-the-fly if enabled and at the right frequency
     if (

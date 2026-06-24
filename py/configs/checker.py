@@ -45,6 +45,13 @@ def get_config(
     config.training.ema_facs = [0.999, 0.9999]
     config.training.ndevices = jax.device_count()
 
+    # Monge gap regularizer knobs
+    config.training.lambda_reg = 0.0       # effect dial; 0.0 = baseline (true no-op)
+    config.training.sinkhorn_eps = 0.05    # relative epsilon (scaled to batch mean cost)
+    config.training.sinkhorn_max_iter = 200
+    config.training.mg_batch = 512         # Sinkhorn sub-batch size (O(n^2) per iter)
+    config.training.mg_min_gap = 0.0       # minimum t - s for the mg (s, t) pair
+
     # problem config - Checker specific
     config.problem = ml_collections.ConfigDict()
     config.problem.n = int(1e7)  # 10M samples for checker

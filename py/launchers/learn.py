@@ -67,7 +67,7 @@ def train_loop(
         )
 
         # take a step on the loss
-        train_state, loss_value, grads = statics.train_step(
+        train_state, loss_value, grads, aux = statics.train_step(
             train_state, statics.loss, loss_fn_args
         )
         end_time = time.time()
@@ -85,6 +85,7 @@ def train_loop(
             loss_fn_args,
             prng_key,
             end_time - start_time,
+            aux,
         )
 
         pbar.set_postfix(loss=loss_value)

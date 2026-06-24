@@ -46,6 +46,24 @@ def _sample_triangle(
     return s, t
 
 
+def _sample_mg_st(
+    key: jnp.ndarray,
+    tmin: float,
+    tmax: float,
+    min_gap: float,
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """Sample ONE shared (s, t) for the Monge gap batch, ensuring t - s >= min_gap."""
+    key1, key2 = jax.random.split(key)
+    raw1 = jax.random.uniform(key1, minval=tmin, maxval=tmax)
+    raw2 = jax.random.uniform(key2, minval=tmin, maxval=tmax)
+    s = jnp.minimum(raw1, raw2)
+    t = jnp.maximum(raw1, raw2)
+    # Clamp t to enforce minimum gap (may slightly bias toward tmax edge)
+    t = jnp.maximum(t, s + min_gap)
+    t = jnp.minimum(t, tmax)
+    return s, t
+
+
 def _get_diag_offdiag_bs(cfg: config_dict.ConfigDict, bs: int) -> Tuple[int, int]:
     """Get diagonal and off-diagonal batch sizes."""
     if hasattr(cfg.optimization, "diag_fraction"):
@@ -87,7 +105,9 @@ def get_loss_fn_args_randomness(
         ukey,
         x0key,
         tkey2,
-    ) = jax.random.split(prng_key, num=5)
+        mg_key,
+        mg_x0key,
+    ) = jax.random.split(prng_key, num=7)
     x0batch = sample_rho0(cfg.optimization.bs, x0key)
 
     bs = cfg.optimization.bs
@@ -134,6 +154,13 @@ def get_loss_fn_args_randomness(
         (cfg.optimization.bs, -1)
     )
     prng_key = jax.random.split(dropout_keys[0])[0]
+
+    # Sample ONE shared (mg_s, mg_t) for the whole Monge gap Sinkhorn batch
+    mg_s, mg_t = _sample_mg_st(mg_key, cfg.training.tmin, cfg.training.tmax, cfg.training.mg_min_gap)
+
+    # Sample mg_batch base points (target x1 slice comes from the dataset in get_loss_fn_args)
+    mg_x0 = sample_rho0(cfg.training.mg_batch, mg_x0key)
+
     return (
         tbatch,
         sbatch,
@@ -142,6 +169,9 @@ def get_loss_fn_args_randomness(
         x0batch,
         dropout_keys,
         prng_key,
+        mg_s,
+        mg_t,
+        mg_x0,
     )
 
 
@@ -201,6 +231,9 @@ def get_loss_fn_args(
         x0batch,
         dropout_keys,
         prng_key,
+        mg_s,
+        mg_t,
+        mg_x0,
     ) = get_loss_fn_args_randomness(
         prng_key,
         cfg,
@@ -215,7 +248,12 @@ def get_loss_fn_args(
     # set up the teacher (uses current params for self-distillation)
     teacher_params = train_state.params
 
-    # for training flow map
+    # Monge gap x1 slice: take first mg_batch samples from the dataset batch
+    mg_x1 = x1batch[: cfg.training.mg_batch]
+
+    # for training flow map (main LSD/PSD/ESD batch)
+    # Note: mg_s, mg_t are 0-d scalars placed AFTER replicate to avoid reshape issues
+    #       with multi-GPU (single-GPU checker experiment only).
     loss_fn_args = (
         x0batch,
         x1batch,
@@ -225,8 +263,10 @@ def get_loss_fn_args(
         ubatch,
         hbatch,
         dropout_keys,
+        mg_x0,
+        mg_x1,
     )
     loss_fn_args = dist_utils.replicate_loss_fn_args(cfg, loss_fn_args)
-    loss_fn_args = (teacher_params, *loss_fn_args)
+    loss_fn_args = (teacher_params, *loss_fn_args, mg_s, mg_t)
 
     return loss_fn_args, prng_key
