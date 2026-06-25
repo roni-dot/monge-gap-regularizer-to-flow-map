@@ -30,7 +30,7 @@ echo "Node:  ${SLURM_JOB_NODELIST}"
 echo "=============================="
 
 # ── paths ──────────────────────────────────────────────────────────────────
-REPO_DIR=/home/ronimaor/flow-maps
+REPO_DIR=/home/ronimaor/monge-gap-regularizer-to-flow-map
 PY_DIR=${REPO_DIR}/py
 OUTPUT_DIR=/home/ronimaor/experiments/checker_mg/phase2
 # ───────────────────────────────────────────────────────────────────────────
@@ -42,8 +42,7 @@ LOAD_PATH=""
 mkdir -p "${OUTPUT_DIR}"
 
 module load anaconda
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate flow_maps
+source activate flow_maps
 
 export WANDB_ENTITY=ronimaor
 export PYTHONNOUSERSITE=1

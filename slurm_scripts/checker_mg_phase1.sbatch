@@ -24,7 +24,7 @@ echo "Node:  ${SLURM_JOB_NODELIST}"
 echo "=============================="
 
 # ── paths -- update to match your cluster ──────────────────────────────────
-REPO_DIR=/home/ronimaor/flow-maps
+REPO_DIR=/home/ronimaor/monge-gap-regularizer-to-flow-map
 PY_DIR=${REPO_DIR}/py
 OUTPUT_DIR=/home/ronimaor/experiments/checker_mg/phase1
 # ───────────────────────────────────────────────────────────────────────────
@@ -44,8 +44,7 @@ LOAD_PATH=""   # e.g. "${OUTPUT_DIR}/checker_mg_lam1p0_eps0p05_15.pkl"
 mkdir -p "${OUTPUT_DIR}"
 
 module load anaconda
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate flow_maps              # <-- update env name if different
+source activate flow_maps
 
 export WANDB_ENTITY=ronimaor
 export PYTHONNOUSERSITE=1
