@@ -394,8 +394,8 @@ def make_lowd_plot(
     fw, fh = 4, 4
     fontsize = 12.5
 
-    ## set up plot array
-    steps = [1, 2, 5, 10, 25]
+    ## set up plot array — NFE values that matter for the experiment
+    steps = [1, 2, 4, 8, 16]
     titles = ["base and target"] + [rf"${step}$-step" for step in steps]
 
     ## extract target samples
@@ -460,6 +460,17 @@ def make_lowd_plot(
             )
 
     wandb.log({"samples": wandb.Image(fig)})
+
+    # Save PNG so you can inspect sample quality during training without WandB
+    if cfg.logging.output_folder:
+        step_val = int(dist_utils.safe_index(cfg, train_state.step))
+        png_path = os.path.join(
+            cfg.logging.output_folder,
+            f"{cfg.logging.output_name}_samples_step{step_val:07d}.png",
+        )
+        fig.savefig(png_path, dpi=100, bbox_inches="tight")
+
+    plt.close(fig)
     return prng_key
 
 
@@ -560,7 +571,7 @@ def make_loss_fn_args_plot(
     """Make a plot of the loss function arguments."""
     # unpack the full loss arguments
     data_args = loss_fn_args[1:]
-    (x0batch, x1batch, _, sbatch, tbatch, _, _, _) = (
+    x0batch, x1batch, _, sbatch, tbatch, *_ = (
         dist_utils.unreplicate_loss_fn_args(cfg, data_args)
     )
 
