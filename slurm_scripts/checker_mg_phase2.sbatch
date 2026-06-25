@@ -33,6 +33,7 @@ LOAD_PATH=""
 module load anaconda
 source activate flow_maps
 export PYTHONNOUSERSITE=1
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 cd "${REPO_DIR}/py" || exit 1
 
