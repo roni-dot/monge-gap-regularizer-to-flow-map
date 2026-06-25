@@ -32,6 +32,7 @@ module load anaconda
 source activate flow_maps
 export PYTHONNOUSERSITE=1
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+export WANDB_MODE=disabled
 
 cd "${REPO_DIR}/py" || exit 1
 
