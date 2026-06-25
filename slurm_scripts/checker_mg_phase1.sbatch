@@ -21,7 +21,7 @@ echo "SLURM_JOB_NODELIST"=$SLURM_JOB_NODELIST
 echo "SLURM_ARRAY_TASK_ID"=$SLURM_ARRAY_TASK_ID
 
 REPO_DIR=/home/ronimaor/monge-gap-regularizer-to-flow-map
-OUTPUT_DIR=/home/ronimaor/experiments/checker_mg/phase1
+OUTPUT_DIR=${REPO_DIR}/experiments/checker_mg/phase1
 mkdir -p "${OUTPUT_DIR}"
 
 # To resume a killed job, set LOAD_PATH to the latest .pkl in OUTPUT_DIR:
