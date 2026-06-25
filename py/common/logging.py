@@ -6,6 +6,8 @@ Code for basic wandb visualization and logging.
 """
 
 import functools
+import json
+import os
 import signal
 import sys
 from typing import Dict, Tuple
@@ -350,6 +352,15 @@ def log_metrics(
             print(f"Warning: FID computation failed: {e}")
 
     wandb.log(metrics)
+
+    # Append metrics to a jsonl file for offline plotting (one JSON object per step)
+    if cfg.logging.output_folder:
+        metrics_path = os.path.join(
+            cfg.logging.output_folder, f"{cfg.logging.output_name}_metrics.jsonl"
+        )
+        row = {"step": int(step), **{k: float(v) for k, v in metrics.items()}}
+        with open(metrics_path, "a") as f:
+            f.write(json.dumps(row) + "\n")
 
     if (dist_utils.safe_index(cfg, train_state.step) % cfg.logging.visual_freq) == 0:
         if cfg.problem.target == "checker":
