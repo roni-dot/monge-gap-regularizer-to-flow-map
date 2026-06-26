@@ -21,7 +21,7 @@ import os
 import ml_collections
 
 # ── UPDATE THIS after Phase 1 results are in ────────────────────────────────
-BEST_LAMBDA = 1.0   # the lambda_reg that gave lowest KL at N=1/N=2 in Phase 1
+BEST_LAMBDA = 0.1   # the lambda_reg that gave lowest KL at N=1/N=2 in Phase 1
 # ─────────────────────────────────────────────────────────────────────────────
 
 mg_experiments = [
