@@ -32,39 +32,47 @@ from flax.serialization import from_bytes
 
 import common.datasets as datasets
 import common.flow_map as flow_map
-import common.interpolant as interpolant
 import common.state_utils as state_utils
 from ml_collections import config_dict
 
 
 # ── KL computation ────────────────────────────────────────────────────────────
 
-def checkerboard_kl(model_samples: np.ndarray, n_bins: int = 64, eps: float = 1e-8) -> float:
+def checkerboard_kl(model_samples: np.ndarray, n_bins: int = 50, eps: float = 1e-8) -> float:
     """
-    KL(p_true || p_model) via histogram quadrature on a 2D grid.
+    KL(rho_1 || rho_hat_1) matching the paper's exact quadrature (Section G.1).
+
+    Paper method: 50x50 grid over [-1,1]^2, continuous density formula:
+      KL = sum_ij log(rho_1(x_ij) / rho_hat_hist(x_ij)) * rho_1(x_ij) * dx * dy
 
     model_samples: (N, 2) array of generated points
-    n_bins:        grid resolution (64 gives stable estimates for N >= 50k)
+    n_bins:        50 to match paper exactly
     """
-    edges = np.linspace(-1.25, 1.25, n_bins + 1)
+    # Grid exactly over [-1, 1]^2 matching the paper
+    edges = np.linspace(-1.0, 1.0, n_bins + 1)
+    dx = 2.0 / n_bins
     centers = 0.5 * (edges[:-1] + edges[1:])
     xx, yy = np.meshgrid(centers, centers, indexing="ij")
 
-    # 4x4 checkerboard on [-1, 1]: cell index in [0,3]
+    # 4x4 checkerboard: white where (floor(2*(x+1)) + floor(2*(y+1))) % 2 == 0
     x_idx = np.floor((xx + 1.0) * 2.0).astype(int).clip(0, 3)
     y_idx = np.floor((yy + 1.0) * 2.0).astype(int).clip(0, 3)
-    is_white = ((x_idx + y_idx) % 2 == 0) & (np.abs(xx) <= 1.0) & (np.abs(yy) <= 1.0)
+    is_white = (x_idx + y_idx) % 2 == 0
 
-    p_true = is_white.astype(float)
-    p_true /= p_true.sum()
+    # True density: uniform 1/2 on white, 0 on black (total white area = 2 out of 4)
+    rho_true = is_white.astype(float) * 0.5
 
-    hist, _, _ = np.histogram2d(
-        model_samples[:, 0], model_samples[:, 1], bins=edges
-    )
-    p_model = hist / hist.sum()
+    # Model density via histogram (only samples inside [-1,1]^2)
+    hist, _, _ = np.histogram2d(model_samples[:, 0], model_samples[:, 1], bins=edges)
+    n_inside = hist.sum()
+    if n_inside == 0:
+        return float("nan")
+    rho_model = hist / (n_inside * dx * dx)  # convert counts to density
 
-    mask = p_true > 0
-    kl = float(np.sum(p_true[mask] * np.log(p_true[mask] / (p_model[mask] + eps))))
+    # KL quadrature: sum over white bins only
+    mask = is_white & (rho_model > 0)
+    kl = float(np.sum(np.log(rho_true[mask] / (rho_model[mask] + eps))
+                      * rho_true[mask] * dx * dx))
     return kl
 
 
@@ -89,7 +97,7 @@ def main():
     # Load config
     cfg_module = importlib.import_module(args.cfg_path)
     cfg = cfg_module.get_config(args.slurm_id, args.dataset_location, args.output_folder)
-    cfg, ds, prng_key = datasets.setup_target(cfg, jax.random.PRNGKey(cfg.training.seed))
+    cfg, _, prng_key = datasets.setup_target(cfg, jax.random.PRNGKey(cfg.training.seed))
     cfg = config_dict.FrozenConfigDict(cfg)
 
     # Build model and load checkpoint
