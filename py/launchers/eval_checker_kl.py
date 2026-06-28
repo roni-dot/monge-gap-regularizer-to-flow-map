@@ -36,44 +36,42 @@ import common.state_utils as state_utils
 from ml_collections import config_dict
 
 
-# ── KL computation ────────────────────────────────────────────────────────────
+# ── KL computation — matches nmboffi/flow-maps notebooks/checker.ipynb exactly ─
 
-def checkerboard_kl(model_samples: np.ndarray, n_bins: int = 50, eps: float = 1e-8) -> float:
-    """
-    KL(rho_1 || rho_hat_1) matching the paper's exact quadrature (Section G.1).
-
-    Paper method: 50x50 grid over [-1,1]^2, continuous density formula:
-      KL = sum_ij log(rho_1(x_ij) / rho_hat_hist(x_ij)) * rho_1(x_ij) * dx * dy
-
-    model_samples: (N, 2) array of generated points
-    n_bins:        50 to match paper exactly
-    """
-    # Grid exactly over [-1, 1]^2 matching the paper
-    edges = np.linspace(-1.0, 1.0, n_bins + 1)
-    dx = 2.0 / n_bins
-    centers = 0.5 * (edges[:-1] + edges[1:])
-    xx, yy = np.meshgrid(centers, centers, indexing="ij")
-
-    # 4x4 checkerboard: white where (floor(2*(x+1)) + floor(2*(y+1))) % 2 == 0
-    x_idx = np.floor((xx + 1.0) * 2.0).astype(int).clip(0, 3)
-    y_idx = np.floor((yy + 1.0) * 2.0).astype(int).clip(0, 3)
+def eval_checkerboard(x: np.ndarray, n_squares: int = 4) -> np.ndarray:
+    """True density of the checkerboard: 0.5 on white squares, 0 elsewhere."""
+    x_unit = (x[..., 0] + 1) / 2
+    y_unit = (x[..., 1] + 1) / 2
+    x_idx = np.floor(x_unit * n_squares).astype(int)
+    y_idx = np.floor(y_unit * n_squares).astype(int)
     is_white = (x_idx + y_idx) % 2 == 0
+    return np.where(is_white, 0.5, 0.0)
 
-    # True density: uniform 1/2 on white, 0 on black (total white area = 2 out of 4)
-    rho_true = is_white.astype(float) * 0.5
 
-    # Model density via histogram (only samples inside [-1,1]^2)
-    hist, _, _ = np.histogram2d(model_samples[:, 0], model_samples[:, 1], bins=edges)
-    n_inside = hist.sum()
-    if n_inside == 0:
-        return float("nan")
-    rho_model = hist / (n_inside * dx * dx)  # convert counts to density
+def compute_kl_quadrature(
+    samples: np.ndarray,
+    n_bins: int = 50,
+    n_squares: int = 4,
+    eps: float = 1e-10,
+) -> float:
+    """
+    KL(p_true || q_model) via histogram quadrature.
 
-    # KL quadrature: sum over white bins only
-    mask = is_white & (rho_model > 0)
-    kl = float(np.sum(np.log(rho_true[mask] / (rho_model[mask] + eps))
-                      * rho_true[mask] * dx * dx))
-    return kl
+    Matches the released reference implementation exactly:
+    - density=True in histogram2d (no manual normalization)
+    - eps=1e-10 added to q before log (empty white bins ARE penalized)
+    - mask on p > 0 only (not on q > 0)
+    """
+    edges = np.linspace(-1, 1, n_bins + 1)
+    bin_area = (edges[1] - edges[0]) ** 2
+    q, _, _ = np.histogram2d(
+        samples[:, 0], samples[:, 1], bins=[edges, edges], density=True
+    )
+    c = 0.5 * (edges[:-1] + edges[1:])
+    xx, yy = np.meshgrid(c, c, indexing="ij")
+    p = eval_checkerboard(np.stack([xx, yy], axis=-1), n_squares)
+    q = q + eps
+    return float(np.sum(np.where(p > 0, p * np.log(p / q) * bin_area, 0.0)))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -85,6 +83,7 @@ def parse_args():
     p.add_argument("--checkpoint", type=str, required=True, help="Path to .pkl checkpoint")
     p.add_argument("--output_folder", type=str, required=True)
     p.add_argument("--n_samples", type=int, default=100_000)
+    p.add_argument("--n_bins", type=int, default=50, help="Histogram bins per axis (paper uses 50)")
     p.add_argument("--nfe_list", type=int, nargs="+", default=[1, 2, 4, 8, 16])
     p.add_argument("--ema_fac", type=float, default=0.999, help="Which EMA params to use")
     p.add_argument("--dataset_location", type=str, default="")
@@ -131,13 +130,25 @@ def main():
     x0s = sample_rho0(args.n_samples, key)
 
     # Evaluate KL at each NFE
-    results = {"step": step, "n_samples": args.n_samples, "kl": {}}
+    results = {"step": step, "n_samples": args.n_samples, "n_bins": args.n_bins, "kl": {}}
 
+    first = True
     for nfe in args.nfe_list:
         print(f"Sampling at N={nfe}...", end=" ", flush=True)
         samples = flow_map.batch_sample(net.apply, eval_params, x0s, nfe, -jnp.ones(args.n_samples))
         samples = np.array(samples)
-        kl = checkerboard_kl(samples, n_bins=64)
+
+        # Sanity check printed once: coverage of [-1,1]^2 and per-axis std
+        if first:
+            inside = np.all(np.abs(samples) <= 1.0, axis=-1).mean()
+            print(f"\n  [sanity] frac in [-1,1]^2={inside:.4f}  "
+                  f"std_x={samples[:,0].std():.4f}  std_y={samples[:,1].std():.4f}")
+            first = False
+
+        # Save raw samples for offline re-analysis
+        np.save(os.path.join(args.output_folder, f"samples_N{nfe}.npy"), samples)
+
+        kl = compute_kl_quadrature(samples, n_bins=args.n_bins)
         results["kl"][str(nfe)] = kl
         print(f"KL = {kl:.4f}")
 
