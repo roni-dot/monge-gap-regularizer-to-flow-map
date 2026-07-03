@@ -11,8 +11,13 @@ Usage (from py/):
     python launchers/plot_trajectories.py \
         --cfg_path configs.checker_mg --slurm_id 0 \
         --ckpt_baseline ../experiments/checker_mg/phase1/checker_mg_lam0p0_eps0p05_25.pkl \
-        --ckpt_reg      ../experiments/checker_mg/phase1/checker_mg_lam0p1_eps0p01_25.pkl \
+        --ckpt_reg      ../experiments/checker_mg/phase2/checker_mg_lam0p1_eps0p01_25.pkl \
         --output_folder ../experiments/checker_mg/figs
+
+Note: baseline (lam0p0_eps0p05) is written by phase1's sbatch to phase1/;
+the eps=0.01 regularized run is written by phase2's sbatch to phase2/
+(checker_mg_phase1.sbatch and checker_mg_phase2.sbatch use different
+OUTPUT_DIRs) — the two --ckpt_* paths are not expected to share a folder.
 """
 
 import os

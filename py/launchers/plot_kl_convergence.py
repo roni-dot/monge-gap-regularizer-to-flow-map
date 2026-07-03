@@ -17,11 +17,13 @@ Usage (from py/):
     python launchers/plot_kl_convergence.py \
         --cfg_path configs.checker_mg --slurm_id 0 \
         --ckpts_baseline "../experiments/checker_mg/phase1/checker_mg_lam0p0_eps0p05_*.pkl" \
-        --ckpts_reg      "../experiments/checker_mg/phase1/checker_mg_lam0p1_eps0p01_*.pkl" \
+        --ckpts_reg      "../experiments/checker_mg/phase2/checker_mg_lam0p1_eps0p01_*.pkl" \
         --output_folder  ../experiments/checker_mg/figs \
         --n_samples 64000
 
-Quote the globs so the shell doesn't expand them.
+Quote the globs so the shell doesn't expand them. Note phase1 and phase2 use
+different OUTPUT_DIRs (see checker_mg_phase1.sbatch / checker_mg_phase2.sbatch),
+so --ckpts_baseline and --ckpts_reg will generally point at different folders.
 ADAPT: uses the same load pattern as eval_checker_kl.py; nothing model-specific
 beyond flow_map.batch_sample, which you already use.
 """
